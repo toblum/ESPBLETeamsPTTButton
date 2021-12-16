@@ -5,7 +5,7 @@
 #include <WiFiClient.h>
 #include <WebServer.h>
 #include <Update.h>
-
+#include <SmartLeds.h>
 
 // Globals
 const char *ssid = "Teams PTT BTTN";
@@ -14,16 +14,18 @@ const char *password = "12345678";
 EasyButton button(BUTTON_PIN);
 BleKeyboard bleKeyboard("Teams PTT BTTN", "TB Devices", 100);
 WebServer server(80);
+SmartLed leds( LED_WS2812, 1, NEOPIXEL_PIN, 0, DoubleBuffer );
 
 long tsLastBtnPress = 0;
 uint8_t buttonPresses = 0;
+bool apEnabled = false;
 
 const char MAIN_page[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>
 <style>
 	body {
-		text-align:center;
+		text-align: center;
 		font-family: helvetica;
 	}
 </style>
@@ -39,7 +41,6 @@ const char MAIN_page[] PROGMEM = R"=====(
 </html>
 )=====";
 
-
 void handleRoot()
 {
 	Serial.println("handleRoot()");
@@ -52,7 +53,6 @@ void handleNotFound()
 	server.send(404, "text/plain", "Content not found");
 }
 
-
 void setup()
 {
 	Serial.begin(115200);
@@ -62,6 +62,9 @@ void setup()
 	button.begin();
 
 	pinMode(LED_PIN, OUTPUT);
+
+	leds[ 0 ] = Rgb{ 0, 0, 0 };
+    leds.show();
 }
 
 void loop()
@@ -73,6 +76,9 @@ void loop()
 	{
 		Serial.println("Button pressed");
 
+		leds[ 0 ] = Rgb{ 255, 0, 0 };
+    	leds.show();
+
 		if (tsLastBtnPress + 500 > millis())
 		{
 			Serial.println("Button pressed in time");
@@ -83,9 +89,10 @@ void loop()
 			buttonPresses = 0;
 		}
 		tsLastBtnPress = millis();
-		if (buttonPresses >= 5)
+		if (buttonPresses >= 5 && !apEnabled)
 		{
 			Serial.println("Button pressed 5x");
+			apEnabled = true;
 
 			WiFi.softAP(ssid, password);
 
@@ -95,12 +102,14 @@ void loop()
 
 			server.on("/", handleRoot);
 			server.on(
-				"/update", HTTP_POST, []() {
+				"/update", HTTP_POST, []()
+				{
 					server.sendHeader("Connection", "close");
 					server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
 					ESP.restart();
 				},
-				[]() {
+				[]()
+				{
 					HTTPUpload &upload = server.upload();
 					if (upload.status == UPLOAD_FILE_START)
 					{
@@ -132,6 +141,9 @@ void loop()
 				});
 			server.onNotFound(handleNotFound);
 			server.begin();
+
+			leds[ 0 ] = Rgb{ 0, 0, 255 };
+    		leds.show();
 		}
 
 		bleKeyboard.press(KEY_LEFT_CTRL);
@@ -142,6 +154,14 @@ void loop()
 	if (button.wasReleased())
 	{
 		Serial.println("Button released");
+
+		if (apEnabled) {
+			leds[ 0 ] = Rgb{ 0, 0, 255 };
+		} else {
+			leds[ 0 ] = Rgb{ 0, 0, 0 };
+		}
+    	leds.show();
+
 		bleKeyboard.releaseAll();
 		digitalWrite(LED_PIN, LOW);
 	}
